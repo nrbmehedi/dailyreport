@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Daily Trip Report</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #fafafa; }
+    h1 { text-align: center; }
+    table { border-collapse: collapse; width: 95%; margin: 30px auto; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    th { background-color: #f0f0f0; }
+    tfoot tr { font-weight: bold; background-color: #dfe6e9; }
+    .chart-container { width: 95%; max-width: 1200px; margin: 30px auto; }
+    .note { text-align: center; color: #555; font-size: 0.9em; margin-top: 10px; }
+    .filter-container { width: 250px; margin: 10px auto; text-align: center; }
+    canvas { background: #fff; border: 1px solid #ddd; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>📊 Daily Trip Report</h1>
+
+{% if error %}
+<p style="color: red; text-align:center;">{{ error }}</p>
+{% else %}
+
+<div class="filter-container">
+    <label for="carTypeSelect">Filter by Car Type:</label>
+    <select id="carTypeSelect">
+        <option value="All">All Car Types</option>
+        {% for ct in chart_car_types %}
+        <option value="{{ ct }}">{{ ct }}</option>
+        {% endfor %}
+    </select>
+    <button id="resetWeekday">Reset Weekday Filter</button>
+</div>
+
+<div class="chart-container">
+    <canvas id="tripChart"></canvas>
+</div>
+
+<p class="note">
+💡 Filter by car type using the dropdown.<br>
+💡 Click a weekday label in the chart to filter that weekday across all dates.<br>
+💡 Click "Reset Weekday Filter" to show all days.
+</p>
+
+<!-- Daily summary table -->
+<table>
+    <thead>
+        <tr>
+            <th>Date (Weekday)</th>
+            <th>Total Trip Request</th>
+            <th>Confirmed</th>
+            <th>Non-Confirmed</th>
+            <th>Trip Still Confirmed</th>
+            <th>Completed</th>
+            <th>Cancelled From Confirmed</th>
+            <th>Cancelled By Customer</th>
+            <th>Cancelled By Driver</th>
+            <th>Zero Bid</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for day in daily_rows %}
+        {% if day.date == 'TOTAL' %}
+            </tbody>
+            <tfoot>
+            <tr>
+                <td>{{ day.date }}</td>
+                <td>{{ day.total }}</td>
+                <td>{{ day.confirmed }}</td>
+                <td>{{ day.non_confirmed }}</td>
+                <td>{{ day.trip_still_confirmed }}</td>
+                <td>{{ day.completed }}</td>
+                <td>{{ day.cancelled_from_confirmed }}</td>
+                <td>{{ day.cancelled_by_customer }}</td>
+                <td>{{ day.cancelled_by_driver }}</td>
+                <td>{{ day.zero_bid }}</td>
+            </tr>
+            </tfoot>
+        {% else %}
+            <tr>
+                <td>{{ day.date }}</td>
+                <td>{{ day.total }}</td>
+                <td>{{ day.confirmed }}</td>
+                <td>{{ day.non_confirmed }}</td>
+                <td>{{ day.trip_still_confirmed }}</td>
+                <td>{{ day.completed }}</td>
+                <td>{{ day.cancelled_from_confirmed }}</td>
+                <td>{{ day.cancelled_by_customer }}</td>
+                <td>{{ day.cancelled_by_driver }}</td>
+                <td>{{ day.zero_bid }}</td>
+            </tr>
+        {% endif %}
+    {% endfor %}
+    </tbody>
+</table>
+
+<script>
+const chartData = JSON.parse('{{ chart_json|escapejs }}');
+const carTypes = {{ chart_car_types|safe }};
+
+// Initialize datasets
+let datasets = [
+    {label:'Total Trip Request', type:'bar', backgroundColor:'rgba(54,162,235,0.5)', borderColor:'rgba(54,162,235,1)', borderWidth:1, data: chartData.series.total},
+    {label:'Confirmed Trips', type:'line', borderColor:'rgba(255,99,132,1)', fill:false, tension:0.3, borderWidth:2, data: chartData.series.confirmed},
+    {label:'Completed Trips', type:'line', borderColor:'rgba(75,192,192,1)', fill:false, tension:0.3, borderWidth:2, data: chartData.series.completed},
+    {label:'Cancelled From Confirmed', type:'line', borderColor:'rgba(255,206,86,1)', fill:false, tension:0.3, borderWidth:2, data: chartData.series.cancelled_from_confirmed},
+    {label:'Zero Bid Trips', type:'line', borderColor:'rgba(153,102,255,1)', fill:false, tension:0.3, borderWidth:2, data: chartData.series.zero_bid}
+];
+
+// Initialize Chart
+const ctx = document.getElementById('tripChart').getContext('2d');
+const tripChart = new Chart(ctx, {
+    type: 'bar',
+    data: {labels: chartData.labels, datasets: datasets},
+    options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend:{position:'top'}, title:{display:true,text:'Trips Overview by Weekday'} },
+        scales: { x:{title:{display:true,text:'Date (Weekday)'}}, y:{beginAtZero:true,title:{display:true,text:'Trips Count'}} }
+    }
+});
+
+// Car type filter dropdown
+const carTypeSelect = document.getElementById('carTypeSelect');
+carTypeSelect.addEventListener('change', function(){
+    const selected = this.value;
+    tripChart.data.datasets.forEach(ds=>{
+        if(ds.label==='Total Trip Request') ds.data = selected==='All'?chartData.series.total:chartData.breakdown.total[selected];
+        else if(ds.label==='Confirmed Trips') ds.data = selected==='All'?chartData.series.confirmed:chartData.breakdown.confirmed[selected];
+        else if(ds.label==='Completed Trips') ds.data = selected==='All'?chartData.series.completed:chartData.breakdown.completed[selected];
+        else if(ds.label==='Cancelled From Confirmed') ds.data = selected==='All'?chartData.series.cancelled_from_confirmed:chartData.breakdown.cancelled_from_confirmed[selected];
+        else if(ds.label==='Zero Bid Trips') ds.data = selected==='All'?chartData.series.zero_bid:chartData.breakdown.zero_bid[selected];
+    });
+    tripChart.update();
+});
+
+// Weekday click filter
+tripChart.options.onClick = (e, elements)=>{
+    if(!elements.length) return;
+    const idx = elements[0].index;
+    const weekday = chartData.labels[idx].split(',')[0];
+    const indices = chartData.labels.map((lbl,i)=>lbl.startsWith(weekday)?i:-1).filter(i=>i>=0);
+    tripChart.data.labels = indices.map(i=>chartData.labels[i]);
+    tripChart.data.datasets.forEach(ds=>{
+        if(ds.label==='Total Trip Request') ds.data = carTypeSelect.value==='All'?indices.map(i=>chartData.series.total[i]):indices.map(i=>chartData.breakdown.total[carTypeSelect.value][i]);
+        else if(ds.label==='Confirmed Trips') ds.data = carTypeSelect.value==='All'?indices.map(i=>chartData.series.confirmed[i]):indices.map(i=>chartData.breakdown.confirmed[carTypeSelect.value][i]);
+        else if(ds.label==='Completed Trips') ds.data = carTypeSelect.value==='All'?indices.map(i=>chartData.series.completed[i]):indices.map(i=>chartData.breakdown.completed[carTypeSelect.value][i]);
+        else if(ds.label==='Cancelled From Confirmed') ds.data = carTypeSelect.value==='All'?indices.map(i=>chartData.series.cancelled_from_confirmed[i]):indices.map(i=>chartData.breakdown.cancelled_from_confirmed[carTypeSelect.value][i]);
+        else if(ds.label==='Zero Bid Trips') ds.data = carTypeSelect.value==='All'?indices.map(i=>chartData.series.zero_bid[i]):indices.map(i=>chartData.breakdown.zero_bid[carTypeSelect.value][i]);
+    });
+    tripChart.update();
+};
+
+// Reset weekday filter
+document.getElementById('resetWeekday').addEventListener('click', ()=>{
+    tripChart.data.labels = chartData.labels;
+    const selected = carTypeSelect.value;
+    tripChart.data.datasets.forEach(ds=>{
+        if(ds.label==='Total Trip Request') ds.data = selected==='All'?chartData.series.total:chartData.breakdown.total[selected];
+        else if(ds.label==='Confirmed Trips') ds.data = selected==='All'?chartData.series.confirmed:chartData.breakdown.confirmed[selected];
+        else if(ds.label==='Completed Trips') ds.data = selected==='All'?chartData.series.completed:chartData.breakdown.completed[selected];
+        else if(ds.label==='Cancelled From Confirmed') ds.data = selected==='All'?chartData.series.cancelled_from_confirmed:chartData.breakdown.cancelled_from_confirmed[selected];
+        else if(ds.label==='Zero Bid Trips') ds.data = selected==='All'?chartData.series.zero_bid:chartData.breakdown.zero_bid[selected];
+    });
+    tripChart.update();
+});
+</script>
+
+{% endif %}
+</body>
+</html>
