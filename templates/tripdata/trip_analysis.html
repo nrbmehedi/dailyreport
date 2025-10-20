@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Trip Analysis</title>
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <style>
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+        th { background-color: #f4f4f4; }
+    </style>
+</head>
+<body>
+
+    <h2>Analysis Export</h2>
+    <table id="analysis_export">
+        <thead>
+            <tr>
+                {% if analysis_export %}
+                    {% for col in analysis_export.0.keys %}
+                        <th>{{ col }}</th>
+                    {% endfor %}
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in analysis_export %}
+                <tr>
+                    {% for val in row.values %}
+                        <td>{{ val }}</td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Confirmed Time Breakdown</h2>
+    <table id="confirmed_time_breakdown">
+        <thead>
+            <tr>
+                {% if confirmed_time_breakdown %}
+                    {% for col in confirmed_time_breakdown.0.keys %}
+                        <th>{{ col }}</th>
+                    {% endfor %}
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in confirmed_time_breakdown %}
+                <tr>
+                    {% for val in row.values %}
+                        <td>{{ val }}</td>
+                    {% endfor %}
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            $('#final_processed, #analysis_export, #confirmed_time_breakdown').DataTable({
+                paging: true,
+                searching: true,
+                ordering: true
+            });
+        });
+    </script>
+</body>
+</html>

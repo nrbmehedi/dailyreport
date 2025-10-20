@@ -19,5 +19,9 @@ from django.urls import path
 from mainz import views 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', views.daily_report_view, name='daily_report'),
+    path('', views.report_list, name='report_list'),
+    path('trip_report/<uploaded_at>/', views.trip_report, name='trip_report'),
+    path('trip_report/details/<name>/', views.daily_report_view, name='daily_report'),
+    path('accounts/login/', views.login_view, name='login'),
+    path('logout/', views.logout_view, name='logout'),
 ]

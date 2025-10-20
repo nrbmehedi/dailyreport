@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unique Uploaded Dates</title>
+    <style>
+        /* General reset */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Body Styles */
+        body {
+            background-color: #f8f9fa;
+            color: #495057;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            font-size: 16px;
+            padding: 30px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            flex-direction: column;
+        }
+
+        /* Main Heading */
+        h1 {
+            font-size: 2.2rem;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+
+        /* Container for the list */
+        .date-container {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        /* List styles */
+        ul {
+            list-style: none;
+            padding: 0;
+            width: 100%;
+        }
+
+        /* List items */
+        li {
+            background-color: #ffffff;
+            margin: 8px 0;
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            font-size: 1.1rem;
+            color: #34495e;
+            text-align: center;
+            transition: transform 0.3s ease, background-color 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+
+        li:hover {
+            transform: translateY(-5px);
+            background-color: #3498db;
+            color: #ffffff;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Remove underline from links */
+        a {
+            text-decoration: none;
+        }
+
+        /* Responsive design */
+        @media (max-width: 600px) {
+            body {
+                padding: 20px;
+            }
+
+            .date-container {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            h1 {
+                font-size: 1.8rem;
+            }
+
+            li {
+                padding: 12px 15px;
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Unique Uploaded Dates</h1>
+
+    <div class="date-container">
+        <ul>
+            {% for date in unique_dates %}
+                <a href="trip_report/{{ date.uploaded_at_date }}"><li>{{ date.uploaded_at_date }}</li></a>
+            {% endfor %}
+        </ul>
+    </div>
+</body>
+</html>

@@ -65,28 +65,39 @@
 <table id="chartDataTable">
     <thead>
         <tr>
-            <th>Date (Weekday)</th>
-            <th>Total Trip Request</th>
-            <th>Confirmed Trips</th>
-            <th>Non-Confirmed Trips</th>
-            <th>Completed Trips</th>
-            <th>Cancelled From Confirmed</th>
-            <th>Zero Bid Trips</th>
+            <th>Date</th>
+            <th>Total</th>
+            <th>Confirmed</th>
+            <th>Non-Confirmed</th>
+            <th>Completed</th>
+            <th>Cancelled</th>
+            <th>Zero Bid</th>
+            <!-- ✅ NEW HEADERS -->
+            <th>2–5 Bid</th>
+            <th>6–10 Bid</th>
+            <th>10+ Bid</th>
         </tr>
     </thead>
-    <tbody id="chartTableBody"></tbody>
+    <tbody id="chartTableBody">
+        <!-- Filled by JS -->
+    </tbody>
     <tfoot>
         <tr id="chartTableTotal">
-            <td>TOTAL</td>
+            <td>Total</td>
             <td>0</td>
             <td>0</td>
             <td>0</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0</td>
+            <!-- ✅ NEW FOOTER CELLS -->
             <td>0</td>
             <td>0</td>
             <td>0</td>
         </tr>
     </tfoot>
 </table>
+
 
 <!-- Original Summary Table -->
 <h2>📋 Day Wise (Trip - All Car)</h2>
@@ -141,145 +152,182 @@
     </tbody>
 </table>
 
+
+
 <script>
-const chartData = JSON.parse('{{ chart_json|escapejs }}');
+document.addEventListener('DOMContentLoaded', function() {
+    const chartData = JSON.parse('{{ chart_json|escapejs }}');
 
-// Get filter elements
-const carTypeSelect = document.getElementById('carTypeSelect');
-const ageTypeSelect = document.getElementById('ageTypeSelect');
-const repeatTypeSelect = document.getElementById('repeatTypeSelect');
+    // Get filter elements
+    const carTypeSelect = document.getElementById('carTypeSelect');
+    const ageTypeSelect = document.getElementById('ageTypeSelect');
+    const repeatTypeSelect = document.getElementById('repeatTypeSelect');
 
-// Pickup Division filter dropdown (make sure it's in your HTML)
-const pickupDivSelect = document.createElement('select');
-pickupDivSelect.id = 'pickupDivSelect';
-pickupDivSelect.style.marginLeft = '10px';
-pickupDivSelect.innerHTML = '<option value="All">All Pickup Div</option>' +
-    `{% for pd in pickup_divs %}<option value="{{ pd }}">{{ pd }}</option>{% endfor %}`;
-document.querySelector('.filter-container').appendChild(pickupDivSelect);
+    // Pickup Division filter dropdown (make sure it's in your HTML)
+    const pickupDivSelect = document.createElement('select');
+    pickupDivSelect.id = 'pickupDivSelect';
+    pickupDivSelect.style.marginLeft = '10px';
+    pickupDivSelect.innerHTML = '<option value="All">All Pickup Div</option>' +
+        `{% for pd in pickup_divs %}<option value="{{ pd }}">{{ pd }}</option>{% endfor %}`;
+    document.querySelector('.filter-container').appendChild(pickupDivSelect);
 
-// Initialize chart datasets
-const baseDatasets = [
-    { label:'Total Trip Request', data: chartData.series.total.slice(), type:'bar', backgroundColor:'rgba(54,162,235,0.5)', borderColor:'rgba(54,162,235,1)', borderWidth:1 },
-    { label:'Confirmed Trips', data: chartData.series.confirmed.slice(), type:'line', borderColor:'rgba(255,99,132,1)', fill:false, tension:0.3, borderWidth:2 },
-    { label:'Non-Confirmed Trips', data: chartData.series.non_confirmed.slice(), type:'line', borderColor:'rgba(255,159,64,1)', fill:false, tension:0.3, borderWidth:2 },
-    { label:'Completed Trips', data: chartData.series.completed.slice(), type:'line', borderColor:'rgba(75,192,192,1)', fill:false, tension:0.3, borderWidth:2 },
-    { label:'Cancelled From Confirmed', data: chartData.series.cancelled_from_confirmed.slice(), type:'line', borderColor:'rgba(255,206,86,1)', fill:false, tension:0.3, borderWidth:2 },
-    { label:'Zero Bid Trips', data: chartData.series.zero_bid.slice(), type:'line', borderColor:'rgba(153,102,255,1)', fill:false, tension:0.3, borderWidth:2 }
-];
+    // Initialize chart datasets
+    const baseDatasets = [
+        { label:'Total Trip Request', data: chartData.series.total.slice(), type:'bar', backgroundColor:'rgba(54,162,235,0.5)', borderColor:'rgba(54,162,235,1)', borderWidth:1 },
+        { label:'Confirmed Trips', data: chartData.series.confirmed.slice(), type:'line', borderColor:'rgba(255,99,132,1)', fill:false, tension:0.3, borderWidth:2 },
+        { label:'Non-Confirmed Trips', data: chartData.series.non_confirmed.slice(), type:'line', borderColor:'rgba(255,159,64,1)', fill:false, tension:0.3, borderWidth:2 },
+        { label:'Completed Trips', data: chartData.series.completed.slice(), type:'line', borderColor:'rgba(75,192,192,1)', fill:false, tension:0.3, borderWidth:2 },
+        { label:'Cancelled From Confirmed', data: chartData.series.cancelled_from_confirmed.slice(), type:'line', borderColor:'rgba(255,206,86,1)', fill:false, tension:0.3, borderWidth:2 },
+        { label:'Zero Bid Trips', data: chartData.series.zero_bid.slice(), type:'line', borderColor:'rgba(153,102,255,1)', fill:false, tension:0.3, borderWidth:2 },
 
-// Create Chart
-const ctx = document.getElementById('tripChart').getContext('2d');
-const chart = new Chart(ctx, {
-    type:'bar',
-    data:{ labels: chartData.labels.slice(), datasets: baseDatasets },
-    options:{
-        responsive:true,
-        interaction:{ mode:'index', intersect:false },
-        plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Trips Overview by Weekday' } },
-        scales:{ x:{ title:{ display:true, text:'Date (Weekday)' } }, y:{ beginAtZero:true, title:{ display:true, text:'Trips Count' } } }
+        // ✅ NEW BID RANGE LINES
+        { label:'2–5 Bid Trips', data: chartData.series.bid_2_5.slice(), type:'line', borderColor:'rgba(0,204,102,1)', fill:false, tension:0.3, borderWidth:2 },
+        { label:'6–10 Bid Trips', data: chartData.series.bid_6_10.slice(), type:'line', borderColor:'rgba(255,99,255,1)', fill:false, tension:0.3, borderWidth:2 },
+        { label:'10+ Bid Trips', data: chartData.series.bid_10_plus.slice(), type:'line', borderColor:'rgba(255,51,51,1)', fill:false, tension:0.3, borderWidth:2 }
+    ];
+
+    // Create Chart
+    const ctx = document.getElementById('tripChart').getContext('2d');
+    const chart = new Chart(ctx, {
+        type:'bar',
+        data:{ labels: chartData.labels.slice(), datasets: baseDatasets },
+        options:{
+            responsive:true,
+            interaction:{ mode:'index', intersect:false },
+            plugins:{ legend:{ position:'top' }, title:{ display:true, text:'Trips Overview by Weekday' } },
+            scales:{ x:{ title:{ display:true, text:'Date (Weekday)' } }, y:{ beginAtZero:true, title:{ display:true, text:'Trips Count' } } }
+        }
+    });
+
+    // Apply all filters
+    function applyFilters() {
+        const carType = carTypeSelect.value;
+        const ageType = ageTypeSelect.value;
+        const repeatType = repeatTypeSelect.value;
+        const pickupDiv = pickupDivSelect.value;
+
+        const metrics = [
+            'total','confirmed','non_confirmed','completed','cancelled_from_confirmed','zero_bid',
+            // ✅ NEW BID RANGE METRICS
+            'bid_2_5','bid_6_10','bid_10_plus'
+        ];
+
+        const datasetMap = {
+            'total': 0, 'confirmed': 1, 'non_confirmed': 2,
+            'completed': 3, 'cancelled_from_confirmed': 4, 'zero_bid': 5,
+            // ✅ NEW
+            'bid_2_5': 6, 'bid_6_10': 7, 'bid_10_plus': 8
+        };
+
+        chart.data.datasets.forEach(ds=>{
+            const metric = Object.keys(datasetMap).find(k=>datasetMap[k] === chart.data.datasets.indexOf(ds));
+            let dataArray;
+
+            if (carType === 'All' && ageType === 'All' && repeatType === 'All' && pickupDiv === 'All') {
+                dataArray = chartData.series[metric].slice();
+            } else {
+                const ctKey = carType === 'All' ? 'All' : carType;
+                const ageKey = ageType === 'All' ? 'All' : (ageType === 'New Customer' ? 'New' : 'Old');
+                const repeatKey = repeatType === 'All' ? 'All' : repeatType;
+                const pdKey = pickupDiv === 'All' ? 'All' : pickupDiv;
+
+                // Safe access with fallback
+                dataArray = chartData.breakdown[metric]?.[ctKey]?.[ageKey]?.[repeatKey]?.[pdKey] || Array(chartData.labels.length).fill(0);
+            }
+
+            ds.data = dataArray.slice();
+        });
+
+        chart.update();
+        updateChartTable();
     }
-});
 
-// Apply all filters
-function applyFilters() {
-    const carType = carTypeSelect.value;
-    const ageType = ageTypeSelect.value;
-    const repeatType = repeatTypeSelect.value;
-    const pickupDiv = pickupDivSelect.value;
+    // Populate chart table
+    function updateChartTable() {
+        const tbody = document.getElementById('chartTableBody');
+        const tfoot = document.getElementById('chartTableTotal');
+        tbody.innerHTML = '';
 
-    const metrics = ['total','confirmed','non_confirmed','completed','cancelled_from_confirmed','zero_bid'];
-    const datasetMap = {
-        'total': 0, 'confirmed': 1, 'non_confirmed': 2,
-        'completed': 3, 'cancelled_from_confirmed': 4, 'zero_bid': 5
+        const totals = {
+            total:0, confirmed:0, non_confirmed:0, completed:0, cancelled:0, zero_bid:0,
+            // ✅ NEW BID TOTALS
+            bid_2_5:0, bid_6_10:0, bid_10_plus:0
+        };
+
+        chart.data.labels.forEach((label, i)=>{
+            const total = chart.data.datasets[0].data[i] || 0;
+            const confirmed = chart.data.datasets[1].data[i] || 0;
+            const nonConfirmed = chart.data.datasets[2].data[i] || 0;
+            const completed = chart.data.datasets[3].data[i] || 0;
+            const cancelled = chart.data.datasets[4].data[i] || 0;
+            const zeroBid = chart.data.datasets[5].data[i] || 0;
+
+            // ✅ NEW
+            const bid_2_5 = chart.data.datasets[6].data[i] || 0;
+            const bid_6_10 = chart.data.datasets[7].data[i] || 0;
+            const bid_10_plus = chart.data.datasets[8].data[i] || 0;
+
+            totals.total += total;
+            totals.confirmed += confirmed;
+            totals.non_confirmed += nonConfirmed;
+            totals.completed += completed;
+            totals.cancelled += cancelled;
+            totals.zero_bid += zeroBid;
+            totals.bid_2_5 += bid_2_5;
+            totals.bid_6_10 += bid_6_10;
+            totals.bid_10_plus += bid_10_plus;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${label}</td><td>${total}</td><td>${confirmed}</td><td>${nonConfirmed}</td>
+                <td>${completed}</td><td>${cancelled}</td><td>${zeroBid}</td>
+                <td>${bid_2_5}</td><td>${bid_6_10}</td><td>${bid_10_plus}</td>`;
+            tbody.appendChild(tr);
+        });
+
+        const cells = tfoot.cells;
+        cells[1].textContent = totals.total;
+        cells[2].textContent = totals.confirmed;
+        cells[3].textContent = totals.non_confirmed;
+        cells[4].textContent = totals.completed;
+        cells[5].textContent = totals.cancelled;
+        cells[6].textContent = totals.zero_bid;
+        // ✅ NEW
+        cells[7].textContent = totals.bid_2_5;
+        cells[8].textContent = totals.bid_6_10;
+        cells[9].textContent = totals.bid_10_plus;
+    }
+
+    // Listeners
+    carTypeSelect.addEventListener('change', applyFilters);
+    ageTypeSelect.addEventListener('change', applyFilters);
+    repeatTypeSelect.addEventListener('change', applyFilters);
+    pickupDivSelect.addEventListener('change', applyFilters);
+
+    // Weekday click filtering
+    chart.options.onClick = (e, elements)=>{
+        if(!elements.length) return;
+        const idx = elements[0].index;
+        const wd = chartData.labels[idx].split(',')[0];
+        const indices = chartData.labels.map((l,i)=> l.startsWith(wd)?i:-1).filter(i=>i>=0);
+
+        chart.data.labels = indices.map(i=> chartData.labels[i]);
+        chart.data.datasets.forEach(ds=> ds.data = indices.map((_,i)=> ds.data[i]));
+        chart.update();
+        updateChartTable();
     };
 
-    chart.data.datasets.forEach(ds=>{
-        const metric = Object.keys(datasetMap).find(k=>datasetMap[k] === chart.data.datasets.indexOf(ds));
-        let dataArray;
-
-        if (carType === 'All' && ageType === 'All' && repeatType === 'All' && pickupDiv === 'All') {
-            dataArray = chartData.series[metric].slice();
-        } else {
-            const ctKey = carType === 'All' ? 'All' : carType;
-            const ageKey = ageType === 'All' ? 'All' : (ageType === 'New Customer' ? 'New' : 'Old');
-            const repeatKey = repeatType === 'All' ? 'All' : repeatType;
-            const pdKey = pickupDiv === 'All' ? 'All' : pickupDiv;
-
-            // Safe access with fallback
-            dataArray = chartData.breakdown[metric]?.[ctKey]?.[ageKey]?.[repeatKey]?.[pdKey] || Array(chartData.labels.length).fill(0);
-        }
-
-        ds.data = dataArray.slice();
+    // Reset Weekday Filter
+    document.getElementById('resetWeekday').addEventListener('click', ()=>{
+        chart.data.labels = chartData.labels.slice();
+        applyFilters();
     });
 
-    chart.update();
-    updateChartTable();
-}
-
-// Populate chart table
-function updateChartTable() {
-    const tbody = document.getElementById('chartTableBody');
-    const tfoot = document.getElementById('chartTableTotal');
-    tbody.innerHTML = '';
-
-    const totals = { total:0, confirmed:0, non_confirmed:0, completed:0, cancelled:0, zero_bid:0 };
-
-    chart.data.labels.forEach((label, i)=>{
-        const total = chart.data.datasets[0].data[i] || 0;
-        const confirmed = chart.data.datasets[1].data[i] || 0;
-        const nonConfirmed = chart.data.datasets[2].data[i] || 0;
-        const completed = chart.data.datasets[3].data[i] || 0;
-        const cancelled = chart.data.datasets[4].data[i] || 0;
-        const zeroBid = chart.data.datasets[5].data[i] || 0;
-
-        totals.total += total;
-        totals.confirmed += confirmed;
-        totals.non_confirmed += nonConfirmed;
-        totals.completed += completed;
-        totals.cancelled += cancelled;
-        totals.zero_bid += zeroBid;
-
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${label}</td><td>${total}</td><td>${confirmed}</td><td>${nonConfirmed}</td><td>${completed}</td><td>${cancelled}</td><td>${zeroBid}</td>`;
-        tbody.appendChild(tr);
-    });
-
-    tfoot.cells[1].textContent = totals.total;
-    tfoot.cells[2].textContent = totals.confirmed;
-    tfoot.cells[3].textContent = totals.non_confirmed;
-    tfoot.cells[4].textContent = totals.completed;
-    tfoot.cells[5].textContent = totals.cancelled;
-    tfoot.cells[6].textContent = totals.zero_bid;
-}
-
-// Listeners
-carTypeSelect.addEventListener('change', applyFilters);
-ageTypeSelect.addEventListener('change', applyFilters);
-repeatTypeSelect.addEventListener('change', applyFilters);
-pickupDivSelect.addEventListener('change', applyFilters);
-
-// Weekday click filtering
-chart.options.onClick = (e, elements)=>{
-    if(!elements.length) return;
-    const idx = elements[0].index;
-    const wd = chartData.labels[idx].split(',')[0];
-    const indices = chartData.labels.map((l,i)=> l.startsWith(wd)?i:-1).filter(i=>i>=0);
-
-    chart.data.labels = indices.map(i=> chartData.labels[i]);
-    chart.data.datasets.forEach(ds=> ds.data = indices.map((_,i)=> ds.data[i]));
-    chart.update();
-    updateChartTable();
-};
-
-// Reset Weekday Filter
-document.getElementById('resetWeekday').addEventListener('click', ()=>{
-    chart.data.labels = chartData.labels.slice();
+    // Initial render
     applyFilters();
 });
-
-// Initial render
-applyFilters();
 </script>
+
+
 
 
 
