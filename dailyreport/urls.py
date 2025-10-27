@@ -23,5 +23,8 @@ urlpatterns = [
     path('trip_report/<uploaded_at>/', views.trip_report, name='trip_report'),
     path('trip_report/details/<name>/', views.daily_report_view, name='daily_report'),
     path('accounts/login/', views.login_view, name='login'),
+    path('non_confirmed_live5min_flagged/<name>/<upazila>/', views.algorithm_view, name='algorithm_view'),
+    path('non_confirmed_live5min_flagged/<name>/', views.non_confirmed_live5min_flagged_view, name='non_confirmed_live5min_flagged_view'),
+    
     path('logout/', views.logout_view, name='logout'),
 ]

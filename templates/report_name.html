@@ -93,6 +93,13 @@
                 <a href="/trip_report/details/{{ report.name }}/" class="report-card">
                     <h3>{{ report.name }}</h3>
                     <div class="date">
+                        <strong>Trip Report - Uploaded On:</strong> {{ report.uploaded_at_date }}
+                    </div>
+                </a>
+
+                 <a href="/non_confirmed_live5min_flagged/{{ report.name }}/" class="report-card">
+                    <h3>Supply Report - {{ report.name }}</h3>
+                    <div class="date">
                         <strong>Uploaded On:</strong> {{ report.uploaded_at_date }}
                     </div>
                 </a>

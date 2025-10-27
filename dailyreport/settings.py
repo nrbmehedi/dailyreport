@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -82,6 +83,14 @@ DATABASES = {
     }
 }
 
+
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Path to your loc.json file
+LOC_JSON_PATH = os.path.join(BASE_DIR, 'mainz', 'loc.json')
+# or if stored in 'data' folder:
+# LOC_JSON_PATH = os.path.join(BASE_DIR, 'data', 'loc.json')
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators

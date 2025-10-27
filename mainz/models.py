@@ -13,6 +13,7 @@ class TripDataUpload(models.Model):
         ('sfq', 'SFQ'),
         ('driver', 'Driver'),
         ('testdata', 'TestData'),
+        ('location', 'Location'),
     ]
 
     name = models.CharField(max_length=255)
