@@ -283,3 +283,5 @@ def daily_report_view(request):
         'chart_car_types': car_types,
         'pickup_divs': pickup_divs
     })
+
+
