@@ -8,6 +8,12 @@ from django.contrib.auth import authenticate, login
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
+import os, json
+from shapely.geometry import shape, Point
+from rtree import index
+from tqdm import tqdm
+import pandas as pd
+from django.conf import settings
 
 
 
@@ -53,7 +59,6 @@ def trip_report(request, uploaded_at):
 @login_required
 def daily_report_view(request, name):
 
-
     # Load files
     trip_file = TripDataUpload.objects.filter(file_type='trip', name=name).first()
     testdata_file = TripDataUpload.objects.filter(file_type='testdata').order_by('-uploaded_at').first()
@@ -66,7 +71,8 @@ def daily_report_view(request, name):
     trip_cols = [
         'customer_phone_no', 'fare', 'trip_status', 'cancelled_by',
         'created_at', 'car_type', 'no_of_bids',
-        'customer_created_at', 'customer_no_of_trips', 'pickup_div'
+        'customer_created_at', 'customer_no_of_trips', 'pickup_div',
+        'pickup_lat', 'pickup_long'  # ✅ Added coordinate columns for mapping
     ]
     testdata_cols = ['Testing Number']
 
@@ -93,6 +99,63 @@ def daily_report_view(request, name):
     trip_df = trip_df.dropna(subset=['created_at'])
     trip_df['date'] = trip_df['created_at'].dt.date
     trip_df['weekday'] = trip_df['created_at'].dt.strftime('%A')
+
+    # --- NEW GEOJSON MAPPING SECTION ---
+
+
+    # Load GeoJSON (loc.json)
+    loc_file_path = os.path.join(settings.BASE_DIR, 'loc.json')
+    if not os.path.exists(loc_file_path):
+        return render(request, 'tripdata/daily_report.html', {
+            'error': 'loc.json not found. Please add it in BASE_DIR.'
+        })
+
+    with open(loc_file_path, 'r', encoding='utf-8') as f:
+        geojson = json.load(f)
+
+    # Build spatial index
+    features = []
+    idx = index.Index()
+    for pos, feature in enumerate(geojson.get('features', [])):
+        geom = shape(feature['geometry'])
+        features.append((geom, feature.get('properties', {})))
+        idx.insert(pos, geom.bounds)
+
+    def find_admin_info(lon, lat):
+        if pd.isna(lon) or pd.isna(lat):
+            return {"division": "", "district": "", "upazila": "", "union": ""}
+        point = Point(float(lon), float(lat))
+        for pos in idx.intersection((point.x, point.y, point.x, point.y)):
+            geom, props = features[pos]
+            if geom.contains(point):
+                return {
+                    "division": props.get("NAME_1", ""),
+                    "district": props.get("NAME_2", ""),
+                    "upazila": props.get("NAME_3", ""),
+                    "union": props.get("NAME_4", "")
+                }
+        return {"division": "", "district": "", "upazila": "", "union": ""}
+
+    # Map pickup coordinates to location
+    mapped_rows = []
+    for _, row in tqdm(trip_df.iterrows(), total=len(trip_df), desc="Mapping upazila"):
+        lat, lon = row.get('pickup_lat'), row.get('pickup_long')
+        loc = find_admin_info(lon, lat)
+        row_dict = row.to_dict()
+        row_dict['division_name'] = loc['division']
+        row_dict['district_name'] = loc['district']
+        row_dict['upazila_name'] = loc['upazila']
+        row_dict['union_name'] = loc['union']
+        row_dict['pickup_div'] = loc['division'] or row_dict.get('pickup_div', 'Unknown')  # ✅ fill pickup_div
+        mapped_rows.append(row_dict)
+
+    if not mapped_rows:
+        return render(request, 'tripdata/daily_report.html', {
+            'error': 'No matching non-confirmed live trips found.'
+        })
+
+    trip_df = pd.DataFrame(mapped_rows)
+    # --- END GEOJSON MAPPING SECTION ---
 
     # Clean strings
     trip_df['car_type'] = trip_df['car_type'].astype(str).replace(['nan', 'None'], 'Unknown').fillna('Unknown')
@@ -169,19 +232,16 @@ def daily_report_view(request, name):
         date_label = f"{weekday}, {day.strftime('%d %b %Y')}"
         dates.append(date_label)
 
-        # --- Vectorized day-level counts ---
         total = len(group)
         confirmed = group['fare'].notna().sum()
         non_confirmed = total - confirmed
         completed = ((group['fare'].notna()) & (~group['trip_status'].isin(['Trip Confirmed', 'Cancelled']))).sum()
         cancelled_from_confirmed = ((group['fare'].notna()) & (group['trip_status'] == 'Cancelled')).sum()
         zero_bid = group['is_zero_bid'].sum()
-
         bid_2_5 = ((group['no_of_bids'] >= 2) & (group['no_of_bids'] <= 5)).sum()
         bid_6_10 = ((group['no_of_bids'] >= 6) & (group['no_of_bids'] <= 10)).sum()
         bid_10_plus = (group['no_of_bids'] > 10).sum()
 
-        # store
         totalTrips.append(total)
         confirmedTrips.append(confirmed)
         nonConfirmedTrips.append(non_confirmed)
@@ -196,7 +256,6 @@ def daily_report_view(request, name):
         repeatTrips.append((group['repeat_type'] == 'Repeat').sum())
         nonRepeatTrips.append((group['repeat_type'] == 'Non-Repeat').sum())
 
-        # accumulate totals
         totals_acc['total'] += total
         totals_acc['confirmed'] += confirmed
         totals_acc['non_confirmed'] += non_confirmed
@@ -207,7 +266,6 @@ def daily_report_view(request, name):
         totals_acc['bid_6_10'] += bid_6_10
         totals_acc['bid_10_plus'] += bid_10_plus
 
-        # ✅ Still loop breakdown (keep identical)
         for ct in car_types_with_all:
             base_ct = group if ct == 'All' else group[group['car_type'] == ct]
             for ak in age_keys:
@@ -242,7 +300,6 @@ def daily_report_view(request, name):
                             breakdown['bid_10_plus'][ct][ak][rk][pdv].append(vals[8])
                         )
 
-    # ✅ Build daily rows (same)
     daily_rows = []
     for i, day in enumerate(grouped.groups.keys()):
         group = grouped.get_group(day)
@@ -293,7 +350,6 @@ def daily_report_view(request, name):
     }
     daily_rows.append(totals_row)
 
-    # Chart payload
     chart_payload = {
         'labels': [str(x) for x in dates],
         'series': {
