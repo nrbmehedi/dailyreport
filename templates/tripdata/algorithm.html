@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Driver & Pickup Analysis</title>
+<style>
+  body {
+    font-family: "Segoe UI", Arial, sans-serif;
+    background-color: #fffaf3;
+    margin: 40px;
+    color: #222;
+  }
+  h1, h2 { color: #333; }
+  .summary {
+    background: #fff;
+    padding: 15px 20px;
+    border-radius: 10px;
+    box-shadow: 0 0 6px rgba(0,0,0,0.1);
+    margin-bottom: 25px;
+  }
+  .tables-container { display: flex; flex-wrap: wrap; gap: 20px; }
+  .table-wrapper {
+    flex: 1 1 400px;
+    background: #fff;
+    padding: 10px;
+    border-radius: 10px;
+    box-shadow: 0 0 8px rgba(0,0,0,0.1);
+    max-height: 500px;
+    overflow-y: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+  }
+  th {
+    background-color: #f4e7c3;
+    cursor: pointer;
+    user-select: none;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  tr:hover { background-color: #fdf6e3; }
+  td a.upazila-link {
+    color: #1a73e8;
+    text-decoration: none;
+    font-weight: bold;
+  }
+  td a.upazila-link:hover {
+    text-decoration: underline;
+    color: #d93025;
+  }
+</style>
+</head>
+<body>
+
+<h1>Driver & Pickup Analysis for "{{ upazila }}"</h1>
+
+<div class="summary">
+  <p><strong>Dataset:</strong> {{ name }}</p>
+
+</div>
+
+<div class="tables-container">
+  <!-- Driver-centric Table -->
+  <div class="table-wrapper">
+    <h2>Driver-centric Table (Most Bid Pickup Areas)</h2>
+    <table id="driver-table">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Pickup District</th>
+          <th>Pickup Upazila</th>
+          <th>Bid Count</th>
+          <th>Unique Drivers</th>
+          <th>Total Unique Drivers</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- Pickup-centric Table -->
+  <div class="table-wrapper">
+    <h2>Pickup-centric Table (Driver Origins)</h2>
+    <table id="pickup-table">
+      <thead>
+        <tr>
+          <th>Order</th>
+          <th>Pickup District</th>
+          <th>Pickup Upazila</th>
+          <th>Driver District</th>
+          <th>Driver Upazila</th>
+          <th>Bid Count</th>
+          <th>Unique Drivers</th>
+          <th>Total Unique Drivers</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const driverData = {{ driver_table_json|safe }};
+const pickupData = {{ pickup_table_json|safe }};
+
+// Column orders
+const driverColumns = ['order', 'pickup_district', 'pickup_upazila', 'bid_count', 'unique_drivers', 'total_unique_drivers'];
+const pickupColumns = ['order', 'pickup_district', 'pickup_upazila', 'driver_district', 'driver_upazila', 'bid_count', 'unique_drivers', 'total_unique_drivers'];
+
+// Populate table function
+function populateTable(tableId, data, columns) {
+  const tbody = document.getElementById(tableId).querySelector('tbody');
+  tbody.innerHTML = '';
+  data.forEach(row => {
+    const tr = document.createElement('tr');
+    columns.forEach(col => {
+      const td = document.createElement('td');
+      if(col.includes('upazila')) {
+        td.innerHTML = `<a href="#" class="upazila-link">${row[col] || ''}</a>`;
+      } else {
+        td.textContent = row[col] !== undefined ? row[col] : '';
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+// Populate both tables
+populateTable('driver-table', driverData, driverColumns);
+populateTable('pickup-table', pickupData, pickupColumns);
+</script>
+
+</body>
+</html>

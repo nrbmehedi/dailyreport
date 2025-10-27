@@ -325,9 +325,344 @@ def daily_report_view(request, name):
         'pickup_divs': pickup_divs
     })
 
+import os
+import json
+import pandas as pd
+from django.conf import settings
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from shapely.geometry import shape, Point
+from rtree import index
+from tqdm import tqdm
+from .models import TripDataUpload
 
 
+@login_required
+def non_confirmed_live5min_flagged_view(request, name):
+    """
+    Creates upazila flag rankings and exports full data to be used in HTML.
+    """
+
+    # --- Load uploaded files ---
+    trip_file = TripDataUpload.objects.filter(file_type='trip', name=name).first()
+    testdata_file = TripDataUpload.objects.filter(file_type='testdata').order_by('-uploaded_at').first()
+
+    if not trip_file or not testdata_file:
+        return render(request, 'tripdata/daily_report.html', {
+            'error': 'Please upload both Trip and TestData files first.'
+        })
+
+    # --- Columns we need ---
+    trip_cols = [
+        'booking_id', 'customer_phone_no', 'fare', 'trip_status',
+        'created_at', 'cancelled_at', 'no_of_bids',
+        'pickup_lat', 'pickup_long'
+    ]
+    testdata_cols = ['Testing Number']
+
+    # --- Read trip & test data ---
+    trip_df = pd.read_excel(trip_file.file.path, usecols=lambda x: x in trip_cols, engine='openpyxl')
+    testdata_df = pd.read_excel(testdata_file.file.path, usecols=lambda x: x in testdata_cols, engine='openpyxl')
+
+    # --- Clean phone numbers & remove test ones ---
+    trip_df['clean_phone'] = (
+        trip_df['customer_phone_no'].astype(str)
+        .str.replace(r'\s+', '', regex=True)
+        .str.lstrip('0')
+    )
+    test_numbers = set(
+        testdata_df['Testing Number'].astype(str)
+        .str.replace(r'\s+', '', regex=True)
+        .str.lstrip('0')
+        .values
+    )
+    trip_df = trip_df[~trip_df['clean_phone'].isin(test_numbers)]
+
+    # --- Parse datetime & compute live minutes ---
+    trip_df['created_at'] = pd.to_datetime(trip_df['created_at'], errors='coerce')
+    trip_df['cancelled_at'] = pd.to_datetime(trip_df['cancelled_at'], errors='coerce')
+    trip_df = trip_df.dropna(subset=['created_at', 'cancelled_at']).copy()
+    trip_df['live_minutes'] = (trip_df['cancelled_at'] - trip_df['created_at']).dt.total_seconds() / 60.0
+
+    # --- Filter: non-confirmed & live > 5 mins ---
+    filtered_df = trip_df[trip_df['fare'].isna() & (trip_df['live_minutes'] > 5)].copy()
+
+    # --- Flag low-bid trips ---
+    filtered_df['no_of_bids'] = pd.to_numeric(filtered_df['no_of_bids'], errors='coerce').fillna(0).astype(int)
+    filtered_df['flag'] = (filtered_df['no_of_bids'] < 4).astype(int)
+
+    # --- Load GeoJSON (loc.json) ---
+    loc_file_path = os.path.join(settings.BASE_DIR, 'loc.json')
+    if not os.path.exists(loc_file_path):
+        return render(request, 'tripdata/daily_report.html', {
+            'error': 'loc.json not found. Please add it in BASE_DIR.'
+        })
+
+    with open(loc_file_path, 'r', encoding='utf-8') as f:
+        geojson = json.load(f)
+
+    # --- Build spatial index ---
+    features = []
+    idx = index.Index()
+    for pos, feature in enumerate(geojson.get('features', [])):
+        geom = shape(feature['geometry'])
+        features.append((geom, feature.get('properties', {})))
+        idx.insert(pos, geom.bounds)
+
+    def find_admin_info(lon, lat):
+        if pd.isna(lon) or pd.isna(lat):
+            return {"division": "", "district": "", "upazila": "", "union": ""}
+        point = Point(float(lon), float(lat))
+        for pos in idx.intersection((point.x, point.y, point.x, point.y)):
+            geom, props = features[pos]
+            if geom.contains(point):
+                return {
+                    "division": props.get("NAME_1", ""),
+                    "district": props.get("NAME_2", ""),
+                    "upazila": props.get("NAME_3", ""),
+                    "union": props.get("NAME_4", "")
+                }
+        return {"division": "", "district": "", "upazila": "", "union": ""}
+
+    # --- Map pickup coordinates to location ---
+    mapped_rows = []
+    for _, row in tqdm(filtered_df.iterrows(), total=len(filtered_df), desc="Mapping upazila"):
+        lat, lon = row.get('pickup_lat'), row.get('pickup_long')
+        loc = find_admin_info(lon, lat)
+        row_dict = row.to_dict()
+        row_dict['division_name'] = loc['division']
+        row_dict['district_name'] = loc['district']  # <-- added
+        row_dict['upazila_name'] = loc['upazila']
+        row_dict['union_name'] = loc['union']
+        mapped_rows.append(row_dict)
+
+    if not mapped_rows:
+        return render(request, 'tripdata/daily_report.html', {
+            'error': 'No matching non-confirmed live trips found.'
+        })
+
+    mapped_df = pd.DataFrame(mapped_rows)
+
+    # --- Sum flags by upazila ---
+    sum_df = mapped_df.groupby('upazila_name', as_index=False)['flag'].sum().rename(columns={'flag': 'flag_sum'})
+    sum_df = sum_df.sort_values(by='flag_sum', ascending=False).reset_index(drop=True)
+    sum_df['order'] = range(1, len(sum_df) + 1)
+
+    # --- Count both 0 and 1 flags per upazila ---
+    flag1_df = mapped_df.groupby('upazila_name')['flag'].sum().reset_index().rename(columns={'flag': 'flag_1_count'})
+    flag0_df = mapped_df.groupby('upazila_name')['flag'].apply(lambda x: (x == 0).sum()).reset_index().rename(columns={'flag': 'flag_0_count'})
+
+    # --- Merge counts and order ---
+    sum_df = sum_df.merge(flag1_df, on='upazila_name', how='left')
+    sum_df = sum_df.merge(flag0_df, on='upazila_name', how='left')
+
+    # --- Merge order back to main dataframe ---
+    final_df = mapped_df.merge(
+        sum_df[['upazila_name', 'order', 'flag_sum', 'flag_1_count', 'flag_0_count']],
+        on='upazila_name', how='left'
+    )
+
+    # --- Prepare JS array for HTML use (with district_name) ---
+    js_array = final_df.to_dict(orient='records')
+    js_var_name = f"{name}_upazilaData"
+
+    # Convert all Timestamps and NaT to strings before dumping
+    def serialize_for_json(obj):
+        if isinstance(obj, (pd.Timestamp,)):
+            return obj.isoformat()
+        elif pd.isna(obj):
+            return None
+        return obj
+
+    js_code = json.dumps(js_array, ensure_ascii=False, default=serialize_for_json)
+
+    # --- Prepare summary ---
+    top_upazilas = sum_df.head(10).to_dict(orient='records')
+
+    # --- Render into HTML template ---
+    return render(request, 'tripdata/non_confirmed_flagged.html', {
+        'dataset_name': name,
+        'top_upazilas': top_upazilas,
+        'js_code': js_code,  # pass the JS variable as text
+        'total_rows': len(final_df),
+        'unique_upazilas': len(sum_df)
+    })
 
 
+import os
+import json
+import pandas as pd
+from shapely.geometry import shape, Point
+from rtree import index
+from tqdm import tqdm
+from django.conf import settings
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from .models import TripDataUpload
 
+@login_required
+def algorithm_view(request, name, upazila):
+    # === Load files ===
+    required_types = ['Location', 'Bid', 'Trip', 'Driver']
+    files = {}
+    for ftype in required_types:
+        file_obj = (
+            TripDataUpload.objects
+            .filter(file_type__iexact=ftype, name__icontains=name)
+            .order_by('-uploaded_at')
+            .first()
+        )
+        if file_obj:
+            files[ftype] = file_obj
+    missing = [ft for ft in required_types if ft not in files]
+    if missing:
+        return render(request, 'tripdata/algorithm.html', {
+            'error': f"Missing files for: {', '.join(missing)}. Please upload all required files first."
+        })
 
+    # === Helper: clean Excel ===
+    def clean_excel(path):
+        df = pd.read_excel(path, engine='openpyxl')
+        df.columns = df.columns.str.strip().str.replace(r'\s+', '_', regex=True).str.lower()
+        df = df.applymap(lambda x: str(x).strip() if isinstance(x, str) else x)
+        return df.dropna(how='all')
+
+    loc_df = clean_excel(files['Location'].file.path)
+    bid_df = clean_excel(files['Bid'].file.path)
+    trip_df = clean_excel(files['Trip'].file.path)
+    driver_df = clean_excel(files['Driver'].file.path)
+
+    # Ensure pickup coords exist
+    for col in ['pickup_lat', 'pickup_long']:
+        if col not in trip_df.columns:
+            trip_df[col] = None
+
+    # --- Merge Trip + Bid ---
+    trip_bid_df = pd.merge(
+        bid_df,
+        trip_df[['booking_id', 'pickup_lat', 'pickup_long']],
+        on='booking_id',
+        how='left'
+    )
+
+    # --- Merge Driver + Location ---
+    merged_driver_loc = pd.merge(
+        driver_df,
+        loc_df,
+        left_on='present_thana',
+        right_on='upazila',
+        how='left'
+    )
+    merged_driver_loc.rename(columns={'lat': 'driver_lat', 'long': 'driver_long'}, inplace=True)
+
+    # --- Merge Trip+Bid with Driver+Location ---
+    merged_final = pd.merge(
+        trip_bid_df,
+        merged_driver_loc,
+        left_on='driver_phone_no',
+        right_on='mobile',
+        how='left'
+    )
+
+    # Keep relevant columns
+    filtered_df = merged_final[['booking_id', 'mobile', 'driver_lat', 'driver_long', 'pickup_lat', 'pickup_long']].copy()
+
+    # === Load loc.json and build spatial index ===
+    loc_file_path = os.path.join(settings.BASE_DIR, 'loc.json')
+    if not os.path.exists(loc_file_path):
+        return render(request, 'tripdata/algorithm.html', {
+            'error': 'loc.json not found. Please add it in BASE_DIR.'
+        })
+
+    with open(loc_file_path, 'r', encoding='utf-8') as f:
+        geojson = json.load(f)
+
+    features = []
+    idx = index.Index()
+    for pos, feature in enumerate(geojson.get('features', [])):
+        geom = shape(feature['geometry'])
+        features.append((geom, feature.get('properties', {})))
+        idx.insert(pos, geom.bounds)
+
+    def find_admin_info(lon, lat):
+        if pd.isna(lon) or pd.isna(lat):
+            return {"district": "", "upazila": ""}
+        try:
+            point = Point(float(lon), float(lat))
+        except ValueError:
+            return {"district": "", "upazila": ""}
+        for pos in idx.intersection((point.x, point.y, point.x, point.y)):
+            geom, props = features[pos]
+            if geom.contains(point):
+                return {
+                    "district": props.get("NAME_2", ""),
+                    "upazila": props.get("NAME_3", "")
+                }
+        return {"district": "", "upazila": ""}
+
+    # === Map driver and pickup coordinates ===
+    mapped_rows = []
+    for _, row in tqdm(filtered_df.iterrows(), total=len(filtered_df), desc="Mapping coordinates"):
+        driver_loc = find_admin_info(row.get('driver_long'), row.get('driver_lat'))
+        pickup_loc = find_admin_info(row.get('pickup_long'), row.get('pickup_lat'))
+        row_dict = row.to_dict()
+        row_dict['driver_district'] = driver_loc['district']
+        row_dict['driver_upazila'] = driver_loc['upazila']
+        row_dict['pickup_district'] = pickup_loc['district']
+        row_dict['pickup_upazila'] = pickup_loc['upazila']
+        mapped_rows.append(row_dict)
+
+    mapped_df = pd.DataFrame(mapped_rows)
+    if mapped_df.empty:
+        return render(request, 'tripdata/algorithm.html', {'error': 'No valid mapped coordinates found.'})
+
+    # === Normalize UTM upazila parameter ===
+    utm_upazila_norm = upazila.strip().replace(" ", "").lower()
+    mapped_df['driver_upazila_norm'] = mapped_df['driver_upazila'].astype(str).str.strip().str.replace(" ", "").str.lower()
+    mapped_df['pickup_upazila_norm'] = mapped_df['pickup_upazila'].astype(str).str.strip().str.replace(" ", "").str.lower()
+
+    # ===========================================================
+    # 1️⃣ Driver-centric table
+    # ===========================================================
+    driver_df_filtered = mapped_df[mapped_df['driver_upazila_norm'] == utm_upazila_norm]
+    driver_total_unique = driver_df_filtered['mobile'].nunique()
+    driver_group = (
+        driver_df_filtered
+        .groupby(['pickup_district', 'pickup_upazila'])
+        .agg(
+            bid_count=('booking_id', 'count'),
+            unique_drivers=('mobile', 'nunique')
+        )
+        .reset_index()
+    )
+    driver_group['total_unique_drivers'] = driver_total_unique
+    driver_max_df = driver_group.sort_values(by=['unique_drivers', 'bid_count'], ascending=[False, False])
+    driver_max_df['order'] = range(1, len(driver_max_df) + 1)
+
+    # ===========================================================
+    # 2️⃣ Pickup-centric table
+    # ===========================================================
+    pickup_df_filtered = mapped_df[mapped_df['pickup_upazila_norm'] == utm_upazila_norm]
+    pickup_total_unique = pickup_df_filtered['mobile'].nunique()
+    pickup_group = (
+        pickup_df_filtered
+        .groupby(['pickup_district', 'pickup_upazila', 'driver_district', 'driver_upazila'])
+        .agg(
+            bid_count=('booking_id', 'count'),
+            unique_drivers=('mobile', 'nunique')
+        )
+        .reset_index()
+    )
+    pickup_group['total_unique_drivers'] = pickup_total_unique
+    pickup_max_df = pickup_group.sort_values(by=['unique_drivers', 'bid_count'], ascending=[False, False])
+    pickup_max_df['order'] = range(1, len(pickup_max_df) + 1)
+
+    driver_table_json = driver_max_df.to_json(orient='records', force_ascii=False)
+    pickup_table_json = pickup_max_df.to_json(orient='records', force_ascii=False)
+
+    return render(request, 'tripdata/algorithm.html', {
+        'driver_table_json': driver_table_json,
+        'pickup_table_json': pickup_table_json,
+        'upazila': upazila,
+        'name': name,
+    })

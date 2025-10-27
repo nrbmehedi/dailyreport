@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Non-Confirmed 5-Min+ Flagged Trips</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      background-color: #fffaf3;
+      margin: 40px;
+      color: #222;
+    }
+    h1, h2 {
+      color: #333;
+    }
+    .summary {
+      background: #fff;
+      padding: 15px 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 6px rgba(0,0,0,0.1);
+      margin-bottom: 25px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      box-shadow: 0 0 8px rgba(0,0,0,0.1);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 30px;
+    }
+    th, td {
+      padding: 10px 14px;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+    }
+    th {
+      background-color: #f4e7c3;
+      cursor: pointer;
+      user-select: none;
+    }
+    tr:hover {
+      background-color: #fdf6e3;
+    }
+
+    td a.upazila-link {
+      color: #1a73e8;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    td a.upazila-link:hover {
+      text-decoration: underline;
+      color: #d93025;
+    }
+
+    .filters {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+    .filters select {
+      padding: 5px 10px;
+      font-size: 14px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Non-Confirmed Live 5+ Min Flagged Trips</h1>
+  <div class="summary">
+    <p><strong>Dataset:</strong> {{ dataset_name }}</p>
+    <p><strong>Total Rows:</strong> {{ total_rows }}</p>
+    <p><strong>Unique Upazilas:</strong> {{ unique_upazilas }}</p>
+  </div>
+
+  <div class="filters">
+    <label>
+      Division:
+      <select id="divisionFilter">
+        <option value="">All Divisions</option>
+      </select>
+    </label>
+    <label>
+      District:
+      <select id="districtFilter">
+        <option value="">All Districts</option>
+      </select>
+    </label>
+  </div>
+
+  <table id="flagTable">
+    <thead>
+      <tr>
+        <th>Order</th>
+        <th>Upazila</th>
+        <th>Low Bid (Bid < 4)</th>
+        <th>Flag (Bid ≥ 4)</th>
+        <th>Total</th>
+        <th>Division</th>
+        <th>District</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+<script>
+  const tripData_upazila = {{ js_code|safe }};
+
+  // --- Group by upazila and count flags ---
+  const grouped = {};
+  const divisionDistrictMap = {};
+  tripData_upazila.forEach(row => {
+      const name = row.upazila_name || "Unknown";
+      const division = row.division_name || "";
+      const district = row.district_name || "";
+      
+      if (!grouped[name]) {
+          grouped[name] = {
+              upazila: name,
+              flag1: 0,
+              flag0: 0,
+              division: division,
+              district: district
+          };
+      }
+      if (row.flag === 1) grouped[name].flag1 += 1;
+      else grouped[name].flag0 += 1;
+
+      // Build division->district map for filter
+      if (division) {
+        if (!divisionDistrictMap[division]) divisionDistrictMap[division] = new Set();
+        if (district) divisionDistrictMap[division].add(district);
+      }
+  });
+
+  const arr = Object.values(grouped).map((g, i) => ({
+      order: i + 1,
+      upazila: g.upazila,
+      flag1: g.flag1,
+      flag0: g.flag0,
+      total: g.flag1 + g.flag0,
+      division: g.division,
+      district: g.district
+  })).sort((a, b) => b.flag1 - a.flag1);
+
+  const tbody = document.querySelector('#flagTable tbody');
+
+  function populateTable(filteredData) {
+    tbody.innerHTML = "";
+    filteredData.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+          <td>${r.order}</td>
+          <td><a href="${r.upazila}" class="upazila-link">${r.upazila}</a></td>
+          <td>${r.flag1}</td>
+          <td>${r.flag0}</td>
+          <td>${r.total}</td>
+          <td>${r.division}</td>
+          <td>${r.district}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // --- Populate filters ---
+  const divisionSelect = document.getElementById('divisionFilter');
+  const districtSelect = document.getElementById('districtFilter');
+
+  Object.keys(divisionDistrictMap).sort().forEach(div => {
+    const opt = document.createElement('option');
+    opt.value = div;
+    opt.textContent = div;
+    divisionSelect.appendChild(opt);
+  });
+
+  function updateDistrictOptions() {
+    const selectedDivision = divisionSelect.value;
+    districtSelect.innerHTML = '<option value="">All Districts</option>';
+    if (selectedDivision && divisionDistrictMap[selectedDivision]) {
+      Array.from(divisionDistrictMap[selectedDivision]).sort().forEach(dist => {
+        const opt = document.createElement('option');
+        opt.value = dist;
+        opt.textContent = dist;
+        districtSelect.appendChild(opt);
+      });
+    }
+  }
+
+  divisionSelect.addEventListener('change', () => {
+    updateDistrictOptions();
+    applyFilters();
+  });
+  districtSelect.addEventListener('change', applyFilters);
+
+  function applyFilters() {
+    const selectedDivision = divisionSelect.value;
+    const selectedDistrict = districtSelect.value;
+    let filtered = arr;
+    if (selectedDivision) {
+      filtered = filtered.filter(r => r.division === selectedDivision);
+    }
+    if (selectedDistrict) {
+      filtered = filtered.filter(r => r.district === selectedDistrict);
+    }
+    populateTable(filtered);
+  }
+
+  // Initial population
+  populateTable(arr);
+</script>
+
+</body>
+</html>
